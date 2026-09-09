@@ -178,6 +178,7 @@ pub(crate) fn pane_display_size(
 fn pane_resample_key(
     dimensions: (u32, u32),
     path: &std::path::Path,
+    rotation_quarter_turns: u8,
     filter: lumia_core::ResampleFilter,
     viewport: &ViewportState,
     pane_bounds: Option<Bounds<Pixels>>,
@@ -185,6 +186,7 @@ fn pane_resample_key(
     let (width, height) = pane_display_size(viewport, dimensions, pane_bounds.map(|b| b.size))?;
     Some(ResampleKey {
         path: path.to_path_buf(),
+        rotation_quarter_turns,
         filter,
         width: width.round().max(1.0) as u32,
         height: height.round().max(1.0) as u32,
@@ -276,6 +278,7 @@ impl LumiaApp {
                         .display_dimensions()
                         .unwrap_or_else(|| base.dimensions()),
                     path,
+                    self.viewer.rotation_quarter_turns(),
                     filter,
                     left_viewport,
                     state.left_pane_bounds,
@@ -287,6 +290,7 @@ impl LumiaApp {
                 pane_resample_key(
                     base.dimensions(),
                     &state.path,
+                    state.rotation_quarter_turns,
                     filter,
                     right_viewport,
                     state.right_pane_bounds,
@@ -381,8 +385,11 @@ impl LumiaApp {
         let right_source_dims = right.map(PreparedImage::dimensions);
         let right = state.display_image().cloned();
         let left_override = left_override.or_else(|| {
-            self.image_path()
-                .and_then(|path| state.left_resample.latest_for(path))
+            self.image_path().and_then(|path| {
+                state
+                    .left_resample
+                    .latest_for(path, self.viewer.rotation_quarter_turns())
+            })
         });
         let left_tiled = if left_override.is_some() {
             None
@@ -403,7 +410,11 @@ impl LumiaApp {
         let right_pane = pane(
             "comparison-right",
             right_override
-                .or_else(|| state.right_resample.latest_for(&state.path))
+                .or_else(|| {
+                    state
+                        .right_resample
+                        .latest_for(&state.path, state.rotation_quarter_turns)
+                })
                 .or_else(|| right.clone()),
             right_source_dims.unwrap_or((1, 1)),
             right_viewport,

@@ -285,13 +285,17 @@ impl LumiaApp {
             {
                 let key = crate::display_resample::ResampleKey {
                     path: path.to_path_buf(),
+                    rotation_quarter_turns: self.viewer.rotation_quarter_turns(),
                     filter: self.settings.resample_filter,
                     width: display_width.round().max(1.0) as u32,
                     height: display_height.round().max(1.0) as u32,
                 };
                 if let Some(resampled) = self.display_resample.ready(&key) {
                     shown = Some(resampled);
-                } else if let Some(previous) = self.display_resample.latest_for(path) {
+                } else if let Some(previous) = self
+                    .display_resample
+                    .latest_for(path, self.viewer.rotation_quarter_turns())
+                {
                     shown = Some(previous);
                 }
             }

@@ -17,11 +17,12 @@ const RESAMPLE_DEBOUNCE: Duration = Duration::from_millis(90);
 /// Upper bound on resampled bitmap size; larger targets keep GPU sampling.
 const MAX_RESAMPLE_PIXELS: u64 = 16 * 1024 * 1024;
 
-/// Identifies one display-sized bitmap: source file, filter, and the rounded
-/// on-screen pixel size it was produced for.
+/// Identifies one display-sized bitmap: source file, rotation, filter, and
+/// the rounded on-screen pixel size it was produced for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ResampleKey {
     pub(crate) path: std::path::PathBuf,
+    pub(crate) rotation_quarter_turns: u8,
     pub(crate) filter: ResampleFilter,
     pub(crate) width: u32,
     pub(crate) height: u32,
@@ -64,23 +65,26 @@ pub(crate) struct ResamplePreview {
 impl ResamplePreview {
     /// The bitmap for exactly `key`, if one has finished processing.
     pub(crate) fn ready(&self, key: &ResampleKey) -> Option<PreparedImage> {
-        match &self.key {
+        match &self.ready_key {
             Some(current) if *current == *key && !self.pending => self.image.clone(),
             _ => None,
         }
     }
 
     /// The most recent finished bitmap, but only while it was resampled from
-    /// `path`.
+    /// `path` with the same rotation.
     ///
     /// Used as a stopgap so the chosen filter stays visible while a new scale
     /// is processing. It must not cross a document boundary: after navigating
     /// to another file the outgoing image's bitmap would be stretched into the
     /// incoming image's frame, which reads as the old image jumping to a new
-    /// scale before the new one appears.
-    pub(crate) fn latest_for(&self, path: &Path) -> Option<PreparedImage> {
+    /// scale before the new one appears. A previous rotation is likewise not
+    /// a valid stopgap: the source bitmap already has the new orientation.
+    pub(crate) fn latest_for(&self, path: &Path, rotation_quarter_turns: u8) -> Option<PreparedImage> {
         match &self.ready_key {
-            Some(key) if key.path == path => self.image.clone(),
+            Some(key) if key.path == path && key.rotation_quarter_turns == rotation_quarter_turns => {
+                self.image.clone()
+            }
             _ => None,
         }
     }
@@ -121,14 +125,16 @@ impl ResamplePreview {
             return;
         };
         let already_handled = match &self.key {
-            Some(key) => *key == request.key && (self.pending || self.image.is_some()),
+            Some(key) => {
+                *key == request.key && (self.pending || self.ready_key.as_ref() == Some(key))
+            }
             None => false,
         };
         if already_handled {
             return;
         }
-        // Supersede any running job and keep the old bitmap on screen until
-        // the replacement finishes.
+        // Supersede any running job and retain the last bitmap for the
+        // same-document, same-rotation fallback until the replacement finishes.
         self.cancel_job();
         self.generation += 1;
         let generation = self.generation;
@@ -238,7 +244,8 @@ impl LumiaApp {
                 .image_path()
                 .is_some_and(|path| self.large_image.is_active(path))
         });
-        let main_request = plan_display_resample(base, self.image_path(), filter, main_display);
+        let main_request =
+            plan_display_resample(base, self.image_path(), rotation, filter, main_display);
 
         // Snapshot before the match: both are immutable reads and
         // `ViewportState` is `Copy`, so this costs nothing.
@@ -250,6 +257,7 @@ impl LumiaApp {
             right_viewport,
             comparison_path,
             comparison_image,
+            comparison_rotation,
         ) = match self.comparison.as_ref() {
             Some(state) => (
                 state.left_pane_bounds,
@@ -262,6 +270,7 @@ impl LumiaApp {
                 state.viewport,
                 Some(state.path.clone()),
                 state.display_image().cloned(),
+                state.rotation_quarter_turns,
             ),
             None => (
                 None,
@@ -270,6 +279,7 @@ impl LumiaApp {
                 ViewportState::default(),
                 None,
                 None,
+                0,
             ),
         };
 
@@ -279,7 +289,7 @@ impl LumiaApp {
                 source.dimensions(),
                 Some(bounds.size),
             )
-            .and_then(|display| build_request(source, path, filter, display)),
+            .and_then(|display| build_request(source, path, rotation, filter, display)),
             _ => None,
         };
         if rotation == 0 {
@@ -298,6 +308,7 @@ impl LumiaApp {
                         ResampleRequest {
                             key: ResampleKey {
                                 path: path.to_path_buf(),
+                                rotation_quarter_turns: 0,
                                 filter,
                                 width,
                                 height,
@@ -318,7 +329,7 @@ impl LumiaApp {
                 source.dimensions(),
                 Some(bounds.size),
             )
-            .and_then(|display| build_request(source, path, filter, display)),
+            .and_then(|display| build_request(source, path, comparison_rotation, filter, display)),
             _ => None,
         };
 
@@ -341,6 +352,7 @@ impl LumiaApp {
 fn plan_display_resample(
     source: Option<&PreparedImage>,
     path: Option<&Path>,
+    rotation_quarter_turns: u8,
     filter: ResampleFilter,
     display_size: Option<(f32, f32)>,
 ) -> Option<ResampleRequest> {
@@ -348,12 +360,13 @@ fn plan_display_resample(
         (Some(source), Some(path)) => (source, path),
         _ => return None,
     };
-    build_request(source, path, filter, display_size?)
+    build_request(source, path, rotation_quarter_turns, filter, display_size?)
 }
 
 fn build_request(
     source: &PreparedImage,
     path: &Path,
+    rotation_quarter_turns: u8,
     filter: ResampleFilter,
     display_size: (f32, f32),
 ) -> Option<ResampleRequest> {
@@ -369,6 +382,7 @@ fn build_request(
     Some(ResampleRequest {
         key: ResampleKey {
             path: path.to_path_buf(),
+            rotation_quarter_turns,
             filter,
             width: target_width,
             height: target_height,
