@@ -29,6 +29,7 @@ mod file_association_actions;
 mod file_association_state;
 mod gpu_display;
 mod gpu_resample;
+mod gpu_resample_pass;
 mod i18n;
 mod image_info;
 mod image_loading;
@@ -118,6 +119,10 @@ pub(crate) struct SelectThemeAccent(pub(crate) ThemeAccent);
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = lumia, no_json)]
 pub(crate) struct SelectResampleFilter(pub(crate) ResampleFilter);
+
+#[derive(Action, Clone, PartialEq, Eq, Deserialize)]
+#[action(namespace = lumia, no_json)]
+pub(crate) struct SelectPixelViewZoom(pub(crate) Option<u32>);
 
 actions!(
     lumia,

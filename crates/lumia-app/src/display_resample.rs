@@ -26,6 +26,15 @@ pub(crate) struct ResampleKey {
     pub(crate) height: u32,
     pub(crate) region: Option<lumia_core::ImagePixelRect>,
     pub(crate) source_dimensions: Option<(u32, u32)>,
+    /// Draw crisp pixels instead of applying `filter` (GPU path only).
+    pub(crate) pixels: Option<PixelView>,
+}
+
+/// High-zoom display that keeps source pixels as squares: nearest neighbour
+/// with edges blended by coverage, so non-integer zooms do not shimmer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PixelView {
+    pub(crate) grid: bool,
 }
 
 /// Which cached preview a background job writes back into.
@@ -377,6 +386,7 @@ impl LumiaApp {
                                 height,
                                 region: None,
                                 source_dimensions: None,
+                                pixels: None,
                             },
                             source: ResampleSource::Raster(raster),
                         }
@@ -450,6 +460,7 @@ fn build_request(
             height: target_height,
             region: None,
             source_dimensions: None,
+            pixels: None,
         },
         source: ResampleSource::Bitmap(source.render_image()),
     })

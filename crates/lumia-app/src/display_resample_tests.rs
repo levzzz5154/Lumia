@@ -9,6 +9,7 @@ fn key(path: &str, size: u32) -> ResampleKey {
         height: size,
         region: None,
         source_dimensions: None,
+        pixels: None,
     }
 }
 
@@ -112,6 +113,7 @@ fn mks_job_resamples_visible_region_above_old_full_image_limit() {
         height: 100_000,
         region: Some(lumia_core::ImagePixelRect::new(50_000, 50_000, 64, 48)),
         source_dimensions: Some((2, 2)),
+        pixels: None,
     };
     let output = run_resample_job(ResampleSource::Bitmap(input.render_image()), &key)
         .unwrap()
@@ -131,6 +133,7 @@ fn latest_region_survives_pan_and_zoom_but_not_a_document_change() {
         filter: ResampleFilter::MagicKernelSharp,
         region: Some(lumia_core::ImagePixelRect::new(x, 0, 10, 10)),
         source_dimensions: Some((50, 50)),
+        pixels: None,
         ..key("a.png", width)
     };
     let mut preview = ResamplePreview::default();

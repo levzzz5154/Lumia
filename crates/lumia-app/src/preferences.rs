@@ -5,8 +5,9 @@ use crate::app::LumiaApp;
 use crate::persistence::save_settings;
 use crate::{
     About, CloseComparison, CompareImages, ExitFullscreen, NextImage, OpenFile, OpenSettings,
-    PreviousImage, Quit, SelectLanguage, SelectResampleFilter, SelectThemeAccent,
-    ToggleComparisonTarget, ToggleFullscreen, ToggleImageInfo, ZoomFit, ZoomIn, ZoomOut,
+    PreviousImage, Quit, SelectLanguage, SelectPixelViewZoom, SelectResampleFilter,
+    SelectThemeAccent, ToggleComparisonTarget, ToggleFullscreen, ToggleImageInfo, ZoomFit, ZoomIn,
+    ZoomOut,
 };
 
 impl LumiaApp {
@@ -30,6 +31,23 @@ impl LumiaApp {
 
     pub(crate) fn set_resample_filter(&mut self, filter: ResampleFilter, cx: &mut Context<Self>) {
         self.settings.resample_filter = filter;
+        let _ = save_settings(&self.settings);
+        cx.notify();
+    }
+
+    pub(crate) fn set_pixel_grid(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.settings.pixel_grid = enabled;
+        let _ = save_settings(&self.settings);
+        cx.notify();
+    }
+
+    pub(crate) fn apply_selected_pixel_view_zoom(
+        &mut self,
+        action: &SelectPixelViewZoom,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings.pixel_view_zoom = action.0;
         let _ = save_settings(&self.settings);
         cx.notify();
     }

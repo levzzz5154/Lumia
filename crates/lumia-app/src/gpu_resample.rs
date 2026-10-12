@@ -5,14 +5,16 @@
 
 use std::sync::Arc;
 
-use lumia_core::{ImagePixelRect, ResampleFilter};
+use lumia_core::ImagePixelRect;
 
 use crate::display_resample::{ResampleKey, ResampleRequest, ResampleSlot, ResampleSource};
+use crate::gpu_resample_pass::{kernel, source_span, Pass, PARAMS_SIZE};
 
 // Half floats keep the signed, premultiplied sums between the two passes.
 const INTERMEDIATE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const DISPLAY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
-const PARAMS_SIZE: u64 = 32;
+// Physical pixels per source pixel from which a grid line does not crowd it.
+const MIN_GRID_PIXEL: u32 = 8;
 
 struct Source {
     /// Address and length of the pixels the texture was uploaded from.
@@ -59,64 +61,6 @@ fn source_pixels(source: &ResampleSource) -> Option<(&[u8], (u32, u32))> {
             );
             Some((image.as_bytes(0)?, dimensions))
         }
-    }
-}
-
-fn kernel(filter: ResampleFilter) -> (u32, f64) {
-    match filter {
-        ResampleFilter::NearestNeighbor => (0, 0.5),
-        ResampleFilter::Bilinear => (1, 1.0),
-        ResampleFilter::Lanczos => (2, 3.0),
-        ResampleFilter::MagicKernelSharp => (3, 4.5),
-    }
-}
-
-/// Source texels `[start, end)` that destination texels `[first, first + len)`
-/// can read on one axis, padded by one for float rounding in the shader.
-fn source_span(source: u32, target: u32, first: u32, len: u32, radius: f64) -> (u32, u32) {
-    if source == target {
-        return (first.min(source - 1), (first + len).min(source));
-    }
-    let scale = f64::from(source) / f64::from(target);
-    let reach = radius * scale.max(1.0) + 1.0;
-    let center = |index: u32| (f64::from(index) + 0.5) * scale - 0.5;
-    let start = (center(first) - reach).floor().max(0.0) as u32;
-    let end = ((center(first + len - 1) + reach).ceil() as u32 + 1).min(source);
-    (start.min(source - 1), end)
-}
-
-struct Pass {
-    source_len: u32,
-    target_len: u32,
-    target_offset: u32,
-    tap_origin: u32,
-    cross_offset: u32,
-    kernel: u32,
-    axis: u32,
-    premultiply: u32,
-}
-
-impl Pass {
-    fn bytes(&self) -> [u8; PARAMS_SIZE as usize] {
-        let mut bytes = [0; PARAMS_SIZE as usize];
-        let floats = [
-            self.source_len,
-            self.target_len,
-            self.target_offset,
-            self.tap_origin,
-            self.cross_offset,
-        ];
-        for (chunk, value) in bytes.chunks_exact_mut(4).zip(floats) {
-            chunk.copy_from_slice(&(value as f32).to_le_bytes());
-        }
-        for (chunk, value) in
-            bytes[20..]
-                .chunks_exact_mut(4)
-                .zip([self.kernel, self.axis, self.premultiply])
-        {
-            chunk.copy_from_slice(&value.to_le_bytes());
-        }
-        bytes
     }
 }
 
@@ -366,7 +310,20 @@ impl GpuResampler {
             };
         }
         let ResampleKey { width, height, .. } = request.key;
-        let (kernel, radius) = kernel(request.key.filter);
+        // Pixel view only makes sense while every source pixel is enlarged.
+        let pixel_view = request
+            .key
+            .pixels
+            .filter(|_| width >= dimensions.0 && height >= dimensions.1);
+        let (kernel, radius) = match pixel_view {
+            Some(_) => (4, 1.0),
+            None => kernel(request.key.filter),
+        };
+        let grid = pixel_view.is_some_and(|view| {
+            view.grid
+                && width / dimensions.0 >= MIN_GRID_PIXEL
+                && height / dimensions.1 >= MIN_GRID_PIXEL
+        });
 
         // Filter first along the axis that leaves the smaller intermediate.
         let span_x = source_span(dimensions.0, width, region.x, region.width, radius);
@@ -434,6 +391,7 @@ impl GpuResampler {
                 kernel,
                 axis: first_axis,
                 premultiply: 1,
+                grid: None,
             },
             &source.view,
             &intermediate,
@@ -451,6 +409,7 @@ impl GpuResampler {
                 kernel,
                 axis: 1 - first_axis,
                 premultiply: 0,
+                grid: grid.then_some((first.0, first.1, first.2)),
             },
             &intermediate,
             &output_view,

@@ -12,7 +12,7 @@ use lumia_core::{ImagePixelRect, ResampleFilter};
 use crate::{
     app::LumiaApp,
     display_resample::{
-        ResampleKey, ResamplePreview, ResampleRequest, ResampleSlot, ResampleSource,
+        PixelView, ResampleKey, ResamplePreview, ResampleRequest, ResampleSlot, ResampleSource,
     },
 };
 
@@ -78,6 +78,7 @@ fn geometry(
             height,
             region: Some(ImagePixelRect::new(x, y, right - x, bottom - y)),
             source_dimensions: Some(dimensions),
+            pixels: None,
         },
         visible,
     })
@@ -134,7 +135,7 @@ impl LumiaApp {
                 }
             })
             .unwrap_or(dimensions);
-        geometry(
+        let mut geometry = geometry(
             path,
             self.settings.resample_filter,
             source_dimensions,
@@ -142,7 +143,18 @@ impl LumiaApp {
             viewport_size,
             (viewport.pan_x, viewport.pan_y),
             window.scale_factor(),
-        )
+        )?;
+        // Pixel view is drawn by the GPU shader only; the CPU job has no
+        // equivalent and keeps the selected filter.
+        let zoom_percent = display.0 / dimensions.0.max(1) as f32 * 100.0;
+        geometry.key.pixels = self
+            .settings
+            .pixel_view_zoom
+            .filter(|from| self.gpu_display.is_active() && zoom_percent >= *from as f32)
+            .map(|_| PixelView {
+                grid: self.settings.pixel_grid,
+            });
+        Some(geometry)
     }
 
     fn magic_source(&self, slot: ResampleSlot) -> Option<ResampleSource> {

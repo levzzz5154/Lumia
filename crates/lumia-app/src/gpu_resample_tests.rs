@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use lumia_core::DecodedImage;
+use lumia_core::{DecodedImage, ResampleFilter};
 
 use super::*;
 use crate::load_state::PreparedImage;
@@ -28,12 +28,15 @@ fn pass_parameters_match_the_shader_layout() {
         kernel: 3,
         axis: 1,
         premultiply: 1,
+        grid: Some((9, 72, 4)),
     }
     .bytes();
     assert_eq!(bytes[0..4], 3.0_f32.to_le_bytes());
     assert_eq!(bytes[16..20], 5.0_f32.to_le_bytes());
     assert_eq!(bytes[20..24], 3_u32.to_le_bytes());
     assert_eq!(bytes[28..32], 1_u32.to_le_bytes());
+    assert_eq!(bytes[36..40], 72.0_f32.to_le_bytes());
+    assert_eq!(bytes[44..48], 1_u32.to_le_bytes());
 }
 
 /// A real device without a window, or `None` on machines that have no GPU.
@@ -82,6 +85,7 @@ fn key(filter: ResampleFilter, target: (u32, u32), region: ImagePixelRect) -> Re
         height: target.1,
         region: Some(region),
         source_dimensions: Some(SOURCE),
+        pixels: None,
     }
 }
 
@@ -251,5 +255,61 @@ fn unscaled_regions_are_copied_exactly() {
     for filter in [ResampleFilter::Lanczos, ResampleFilter::MagicKernelSharp] {
         let gpu_pixels = on_gpu(&mut gpu, &image, key(filter, SOURCE, region));
         assert_eq!(gpu_pixels, crop(&image, region));
+    }
+}
+
+fn pixel_key(target: (u32, u32), region: ImagePixelRect, grid: bool) -> ResampleKey {
+    ResampleKey {
+        pixels: Some(crate::display_resample::PixelView { grid }),
+        ..key(ResampleFilter::MagicKernelSharp, target, region)
+    }
+}
+
+#[test]
+fn pixel_view_is_exact_nearest_neighbour_at_integer_zoom() {
+    let Some(mut gpu) = headless() else { return };
+    let image = source(false);
+    let target = (SOURCE.0 * 8, SOURCE.1 * 8);
+    let region = ImagePixelRect::new(16, 24, 200, 120);
+    let nearest = lumia_core::resize_decoded_image(
+        &image,
+        ResampleFilter::NearestNeighbor,
+        target.0,
+        target.1,
+    )
+    .unwrap();
+    let expected = crop(&nearest, region);
+    assert_eq!(
+        on_gpu(&mut gpu, &image, pixel_key(target, region, false)),
+        expected
+    );
+
+    // The grid tints the last row and column of every source pixel, nothing else.
+    let with_grid = on_gpu(&mut gpu, &image, pixel_key(target, region, true));
+    for y in 0..region.height {
+        for x in 0..region.width {
+            let at = ((y * region.width + x) * 4) as usize;
+            let on_line = (region.x + x) % 8 == 7 || (region.y + y) % 8 == 7;
+            let same = with_grid[at..at + 4] == expected[at..at + 4];
+            assert_eq!(same, !on_line, "texel {x},{y}");
+        }
+    }
+}
+
+#[test]
+fn pixel_view_blends_edges_by_coverage_at_fractional_zoom() {
+    let Some(mut gpu) = headless() else { return };
+    let image = source(false);
+    // 2.5x: target texel 2 spans source 0.8..1.2, half in each neighbour.
+    let target = (SOURCE.0 * 5 / 2, SOURCE.1 * 5);
+    let region = ImagePixelRect::new(0, 0, 10, 5);
+    let pixels = on_gpu(&mut gpu, &image, pixel_key(target, region, true));
+    let source_texel = |x: usize| &image.pixels_bgra8[x * 4..x * 4 + 4];
+    assert_eq!(&pixels[0..4], source_texel(0));
+    assert_eq!(&pixels[4..8], source_texel(0));
+    assert_eq!(&pixels[12..16], source_texel(1));
+    for c in 0..3 {
+        let average = (u16::from(source_texel(0)[c]) + u16::from(source_texel(1)[c])) / 2;
+        assert!(u16::from(pixels[8 + c]).abs_diff(average) <= 1);
     }
 }

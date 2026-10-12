@@ -50,6 +50,7 @@ impl Render for LumiaApp {
             .on_action(cx.listener(Self::toggle_comparison_target_action))
             .on_action(cx.listener(Self::close_comparison_action))
             .on_action(cx.listener(Self::apply_selected_resample_filter))
+            .on_action(cx.listener(Self::apply_selected_pixel_view_zoom))
             .on_action(cx.listener(Self::rotate_counter_clockwise))
             .on_action(|_: &Quit, _: &mut Window, cx: &mut App| cx.quit())
             .on_mouse_move(cx.listener(Self::handle_root_mouse_move))
@@ -288,6 +289,7 @@ impl LumiaApp {
                     height: display_height.round().max(1.0) as u32,
                     region: None,
                     source_dimensions: None,
+                    pixels: None,
                 };
                 if let Some(resampled) = self.display_resample.ready(&key) {
                     shown = Some(resampled);

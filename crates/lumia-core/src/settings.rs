@@ -31,10 +31,25 @@ pub struct AppSettings {
         deserialize_with = "deserialize_shortcuts"
     )]
     pub shortcuts: HashMap<ShortcutId, String>,
+    /// Zoom, in percent, from which the image is drawn as crisp pixels instead
+    /// of with `resample_filter`. `None` never switches.
+    #[serde(default = "default_pixel_view_zoom")]
+    pub pixel_view_zoom: Option<u32>,
+    /// Draw a grid between pixels once pixel view is active and they are large.
+    #[serde(default = "default_pixel_grid")]
+    pub pixel_grid: bool,
     #[serde(default = "default_check_updates_on_startup")]
     pub check_updates_on_startup: bool,
     #[serde(default)]
     pub skipped_update_version: Option<String>,
+}
+
+fn default_pixel_view_zoom() -> Option<u32> {
+    Some(400)
+}
+
+fn default_pixel_grid() -> bool {
+    true
 }
 
 fn default_check_updates_on_startup() -> bool {
@@ -57,6 +72,8 @@ impl Default for AppSettings {
             language: Language::English,
             theme_accent: ThemeAccent::default(),
             resample_filter: ResampleFilter::default(),
+            pixel_view_zoom: default_pixel_view_zoom(),
+            pixel_grid: default_pixel_grid(),
             shortcuts: default_shortcuts(),
             check_updates_on_startup: true,
             skipped_update_version: None,
@@ -163,11 +180,28 @@ mod tests {
     }
 
     #[test]
+    fn pixel_view_defaults_apply_only_when_the_fields_are_missing() {
+        let missing: AppSettings =
+            serde_json::from_str(r#"{"language":"English"}"#).expect("deserialize old settings");
+        assert_eq!(missing.pixel_view_zoom, Some(400));
+        assert!(missing.pixel_grid);
+
+        let off: AppSettings = serde_json::from_str(
+            r#"{"language":"English","pixel_view_zoom":null,"pixel_grid":false}"#,
+        )
+        .expect("deserialize disabled pixel view");
+        assert_eq!(off.pixel_view_zoom, None);
+        assert!(!off.pixel_grid);
+    }
+
+    #[test]
     fn app_settings_round_trip_through_json() {
         let settings = AppSettings {
             language: Language::Chinese,
             theme_accent: ThemeAccent::Rose,
             resample_filter: ResampleFilter::NearestNeighbor,
+            pixel_view_zoom: None,
+            pixel_grid: false,
             shortcuts: default_shortcuts(),
             check_updates_on_startup: false,
             skipped_update_version: Some("0.1.1".into()),

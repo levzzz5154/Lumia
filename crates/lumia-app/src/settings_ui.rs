@@ -26,6 +26,22 @@ pub(crate) fn resample_filter_text_key(filter: ResampleFilter) -> TextKey {
     }
 }
 
+/// Zoom levels offered for the switch to pixel view, in percent.
+pub(crate) const PIXEL_VIEW_ZOOMS: [(u32, &str); 5] = [
+    (200, "200%"),
+    (400, "400%"),
+    (800, "800%"),
+    (1600, "1600%"),
+    (3200, "3200%"),
+];
+
+pub(crate) fn pixel_view_zoom_label(language: Language, zoom: Option<u32>) -> &'static str {
+    PIXEL_VIEW_ZOOMS
+        .iter()
+        .find(|(percent, _)| Some(*percent) == zoom)
+        .map_or(tr(language, TextKey::PixelViewOff), |(_, label)| label)
+}
+
 pub(crate) fn theme_accent_text_key(accent: ThemeAccent) -> TextKey {
     match accent {
         ThemeAccent::Blue => TextKey::AccentBlue,

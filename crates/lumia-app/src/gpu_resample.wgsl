@@ -14,12 +14,19 @@ struct Params {
     // Source coordinate of `input`'s texel that this target's first texel
     // reads on the other axis.
     cross_offset: f32,
-    // 0 nearest, 1 bilinear, 2 Lanczos3, 3 Magic Kernel Sharp 2021.
+    // 0 nearest, 1 bilinear, 2 Lanczos3, 3 Magic Kernel Sharp 2021,
+    // 4 pixel view: nearest with edges blended by coverage (enlarging only).
     kernel: u32,
     // 0 filters x, 1 filters y.
     axis: u32,
     // 1 when `input` holds straight-alpha colour that must be premultiplied.
     premultiply: u32,
+    // Second pass only: the lengths and offset of the other axis, and whether
+    // to draw the pixel grid.
+    grid_source_len: f32,
+    grid_target_len: f32,
+    grid_target_offset: f32,
+    grid: u32,
 }
 
 @group(0) @binding(0) var input: texture_2d<f32>;
@@ -113,6 +120,19 @@ fn filtered(position: vec4<f32>) -> vec4<f32> {
         let nearest = i32(floor((target_index + 0.5) * scale));
         return fetch(clamp(nearest, 0, last_source), cross_index);
     }
+    if (params.kernel == 4u) {
+        // The target texel spans `center ± half` in source texels and touches
+        // at most two of them; weight each by the share it covers.
+        let half = 0.5 * scale;
+        let middle = (target_index + 0.5) * scale;
+        let low = clamp(i32(floor(middle - half)), 0, last_source);
+        let high = clamp(i32(floor(middle + half)), 0, last_source);
+        if (low == high) {
+            return fetch(low, cross_index);
+        }
+        let share = clamp((middle + half - f32(high)) / scale, 0.0, 1.0);
+        return mix(fetch(low, cross_index), fetch(high, cross_index), share);
+    }
     // Widen the whole kernel when reducing, to suppress aliasing.
     let stretch = max(scale, 1.0);
     let center = (target_index + 0.5) * scale - 0.5;
@@ -146,5 +166,36 @@ fn fs_second(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     if (alpha <= 0.0) {
         return vec4<f32>(0.0);
     }
-    return vec4<f32>(clamp(color.rgb / color.a, vec3<f32>(0.0), vec3<f32>(1.0)), alpha);
+    var rgb = clamp(color.rgb / color.a, vec3<f32>(0.0), vec3<f32>(1.0));
+    if (params.grid != 0u) {
+        let texel = floor(position.xy);
+        var along = texel.x;
+        var across = texel.y;
+        if (params.axis == 1u) {
+            along = texel.y;
+            across = texel.x;
+        }
+        let on_line = ends_source_texel(
+            along + params.target_offset,
+            params.source_len / params.target_len,
+        ) || ends_source_texel(
+            across + params.grid_target_offset,
+            params.grid_source_len / params.grid_target_len,
+        );
+        if (on_line) {
+            // Pull towards the opposite of the pixel's own brightness so the
+            // line reads on both light and dark content.
+            let luminance = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
+            rgb = mix(rgb, vec3<f32>(step(luminance, 0.5)), 0.28);
+        }
+    }
+    return vec4<f32>(rgb, alpha);
+}
+
+// Whether `target_index` is the last target texel of a source texel. Adjacent
+// texels evaluate the same product for their shared edge, so every boundary
+// lands on exactly one of them. The nudge absorbs the GPU's inexact division
+// in `scale`; the grid is only drawn while texels are far wider than it.
+fn ends_source_texel(target_index: f32, scale: f32) -> bool {
+    return floor((target_index + 1.0) * scale + 0.01) != floor(target_index * scale + 0.01);
 }

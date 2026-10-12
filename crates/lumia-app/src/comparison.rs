@@ -190,6 +190,7 @@ fn pane_resample_key(
         height: height.round().max(1.0) as u32,
         region: None,
         source_dimensions: None,
+        pixels: None,
     })
 }
 
