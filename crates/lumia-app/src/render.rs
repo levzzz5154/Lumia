@@ -23,18 +23,6 @@ impl Render for LumiaApp {
         self.sync_annotation_text_input(window, cx);
         self.sync_community_search_input(window, cx);
         self.schedule_viewer_resamples(window, cx);
-        // Spike probe: does gpui-ce hand out its wgpu device on this machine?
-        static PROBE: std::sync::Once = std::sync::Once::new();
-        PROBE.call_once(|| {
-            eprintln!(
-                "SPIKE gpu_context available: {} | device lost: {:?} | specs: {:?}",
-                window.gpu_context().is_some(),
-                window.gpu_device_lost(),
-                window
-                    .gpu_specs()
-                    .map(|s| (s.device_name, s.driver_name, s.is_software_emulated)),
-            );
-        });
         self.refresh_large_image_tiles(window, cx);
 
         div()

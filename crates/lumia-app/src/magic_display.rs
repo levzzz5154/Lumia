@@ -32,6 +32,7 @@ struct Geometry {
 
 fn geometry(
     path: &Path,
+    filter: ResampleFilter,
     dimensions: (u32, u32),
     display: (f32, f32),
     viewport: (f32, f32),
@@ -72,7 +73,7 @@ fn geometry(
     Some(Geometry {
         key: ResampleKey {
             path: path.to_path_buf(),
-            filter: ResampleFilter::MagicKernelSharp,
+            filter,
             width,
             height,
             region: Some(ImagePixelRect::new(x, y, right - x, bottom - y)),
@@ -135,6 +136,7 @@ impl LumiaApp {
             .unwrap_or(dimensions);
         geometry(
             path,
+            self.settings.resample_filter,
             source_dimensions,
             display,
             viewport_size,
@@ -186,6 +188,18 @@ impl LumiaApp {
                     })
                 })
                 .flatten();
+            // The GPU filters the region within this frame; anything it
+            // cannot hold falls through to the background CPU job.
+            let request = match (request, self.gpu_display.prepare(window)) {
+                (Some(request), Some(gpu)) => gpu.render(slot, request).err(),
+                (request, gpu) => {
+                    if let Some(gpu) = gpu {
+                        gpu.clear(slot);
+                    }
+                    request
+                }
+            };
+            let on_gpu = request.is_none() && self.gpu_display.output_ready(slot);
             let handle = self.self_handle.clone();
             let preview = match slot {
                 ResampleSlot::MainDisplay => &mut self.display_resample,
@@ -202,7 +216,12 @@ impl LumiaApp {
                     &mut state.right_resample
                 }
             };
-            preview.request(request, slot, handle, cx);
+            if on_gpu {
+                // Nothing is owed by the CPU cache for this slot any more.
+                preview.invalidate();
+            } else {
+                preview.request(request, slot, handle, cx);
+            }
         }
     }
 
@@ -214,7 +233,9 @@ impl LumiaApp {
         slot: ResampleSlot,
         window: &Window,
     ) -> Option<AnyElement> {
-        if self.settings.resample_filter != ResampleFilter::MagicKernelSharp {
+        if !self.gpu_display.is_active()
+            && self.settings.resample_filter != ResampleFilter::MagicKernelSharp
+        {
             return None;
         }
         let mut content = div().relative().size_full();
@@ -223,7 +244,50 @@ impl LumiaApp {
             ResampleSlot::ComparisonLeft => self.comparison.as_ref().map(|s| &s.left_resample),
             ResampleSlot::ComparisonRight => self.comparison.as_ref().map(|s| &s.right_resample),
         };
-        if let (Some(geometry), Some(preview)) = (self.magic_geometry(slot, window), preview) {
+        let geometry = self.magic_geometry(slot, window);
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        if let Some((texture, region)) = geometry
+            .as_ref()
+            .and_then(|geometry| self.gpu_display.output(slot, &geometry.key))
+        {
+            let density = window.scale_factor();
+            // One texel per physical pixel: the compositor's sampler then
+            // returns the filtered texels unchanged.
+            content = content.child(
+                canvas(
+                    |_, _, _| (),
+                    move |bounds, _, window, _| {
+                        let origin = point(
+                            px((f32::from(bounds.origin.x) * density).round() / density),
+                            px((f32::from(bounds.origin.y) * density).round() / density),
+                        );
+                        let target = Bounds::new(
+                            origin
+                                + point(
+                                    px(region.x as f32 / density),
+                                    px(region.y as f32 / density),
+                                ),
+                            size(
+                                px(region.width as f32 / density),
+                                px(region.height as f32 / density),
+                            ),
+                        );
+                        window.paint_surface(
+                            target,
+                            texture,
+                            size(
+                                gpui_kit::DevicePixels(region.width as i32),
+                                gpui_kit::DevicePixels(region.height as i32),
+                            ),
+                        );
+                    },
+                )
+                .absolute()
+                .size_full(),
+            );
+            return Some(content.into_any_element());
+        }
+        if let (Some(geometry), Some(preview)) = (geometry, preview) {
             // Between jobs the last output stays up: unchanged after a pan,
             // stretched onto the new grid after a zoom.
             if let Some((image, region, grid)) = preview.latest_region(&geometry.key) {
@@ -294,6 +358,7 @@ mod tests {
     fn high_zoom_keeps_full_scale_but_allocates_only_visible_pixels() {
         let g = geometry(
             Path::new("a.png"),
+            ResampleFilter::MagicKernelSharp,
             (4000, 3000),
             (40000.0, 30000.0),
             (1200.0, 800.0),
@@ -315,6 +380,7 @@ mod tests {
         let at = |pan_x: f32| {
             geometry(
                 Path::new("a.png"),
+                ResampleFilter::MagicKernelSharp,
                 (100, 100),
                 (10000.0, 10000.0),
                 (1000.0, 800.0),
@@ -342,6 +408,7 @@ mod tests {
     fn fitting_and_offscreen_images_have_bounded_regions() {
         let g = geometry(
             Path::new("a.png"),
+            ResampleFilter::MagicKernelSharp,
             (100, 100),
             (200.0, 200.0),
             (1000.0, 800.0),
@@ -352,6 +419,7 @@ mod tests {
         assert_eq!(g.key.region, Some(ImagePixelRect::new(0, 0, 300, 300)));
         assert!(geometry(
             Path::new("a.png"),
+            ResampleFilter::MagicKernelSharp,
             (100, 100),
             (200.0, 200.0),
             (1000.0, 800.0),

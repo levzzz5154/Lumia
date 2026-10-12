@@ -19,6 +19,8 @@ reqwest_client.workspace = true
 ring.workspace = true
 futures.workspace = true
 image.workspace = true
+# Spike: must resolve to the wgpu that gpui-ce renders with, so textures are shared.
+wgpu = "29"
 hex.workspace = true
 lumia-core.workspace = true
 lumia-plugin-api.workspace = true

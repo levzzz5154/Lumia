@@ -50,6 +50,11 @@ impl LargeImageRaster {
         )
     }
 
+    /// The full-resolution BGRA8 pixels, row-major and unpadded.
+    pub fn pixels(&self) -> &[u8] {
+        self.reader.pixels()
+    }
+
     pub fn resize_magic_kernel_sharp_region(
         &self,
         target: (u32, u32),

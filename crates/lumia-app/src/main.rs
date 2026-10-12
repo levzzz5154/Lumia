@@ -27,6 +27,8 @@ mod editing_export;
 mod editing_panel;
 mod file_association_actions;
 mod file_association_state;
+mod gpu_display;
+mod gpu_resample;
 mod i18n;
 mod image_info;
 mod image_loading;

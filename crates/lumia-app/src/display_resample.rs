@@ -287,7 +287,10 @@ impl LumiaApp {
     /// Refresh the pending resample requests for the main viewer and, when
     /// comparison mode is active, both comparison panes.
     pub(crate) fn schedule_viewer_resamples(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if self.settings.resample_filter == ResampleFilter::MagicKernelSharp {
+        // With a GPU resampler every filter is drawn as a visible region;
+        // without one only Magic Kernel Sharp takes that path, on the CPU.
+        let gpu = self.gpu_display.prepare(window).is_some();
+        if gpu || self.settings.resample_filter == ResampleFilter::MagicKernelSharp {
             self.schedule_magic_resamples(window, cx);
             return;
         }
