@@ -1,4 +1,5 @@
 use gpui_kit::component::{tooltip::Tooltip, Icon};
+use gpui_kit::ColorExt as _;
 use gpui_kit::{
     div, px, rgb, ClipboardItem, Context, InteractiveElement, IntoElement, MouseButton,
     ParentElement, StatefulInteractiveElement, Styled, Window,

@@ -277,7 +277,7 @@ impl LumiaApp {
         self.ui.update_check.state = UpdateState::Checking;
         cx.notify();
 
-        let client = cx.http_client();
+        let client = crate::bootstrap::http_client(cx);
         let handle = self.self_handle.clone();
         let current =
             Version::parse(env!("CARGO_PKG_VERSION")).expect("CARGO_PKG_VERSION is valid semver");
@@ -361,7 +361,7 @@ impl LumiaApp {
         };
         cx.notify();
 
-        let client = cx.http_client();
+        let client = crate::bootstrap::http_client(cx);
         let handle = self.self_handle.clone();
         let dest = std::env::temp_dir().join(&asset.name);
 

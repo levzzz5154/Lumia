@@ -195,7 +195,7 @@ impl LumiaApp {
         let generation = self.community_plugins.begin_load();
         cx.notify();
 
-        let client = cx.http_client();
+        let client = crate::bootstrap::http_client(cx);
         let handle = self.self_handle.clone();
         cx.spawn(async move |_this, cx| {
             let result = fetch_index(&client).await;
@@ -271,7 +271,7 @@ impl LumiaApp {
             return;
         };
 
-        let client = cx.http_client();
+        let client = crate::bootstrap::http_client(cx);
         let handle = self.self_handle.clone();
         let url = artifact.url.clone();
         let sha256 = artifact.sha256.clone();

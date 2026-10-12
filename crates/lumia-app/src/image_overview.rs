@@ -1,3 +1,4 @@
+use gpui_kit::ColorExt as _;
 use gpui_kit::{
     div, img, px, rgb, AnyElement, Context, InteractiveElement, IntoElement, MouseButton,
     MouseDownEvent, MouseMoveEvent, ObjectFit, ParentElement, Point, Styled, StyledImage, Window,

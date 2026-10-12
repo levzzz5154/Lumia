@@ -5,6 +5,7 @@ use gpui_kit::component::{
     menu::{DropdownMenu, PopupMenu},
 };
 use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::ColorExt as _;
 use gpui_kit::{
     div, px, rgb, AnyElement, Context, InteractiveElement, IntoElement, Keystroke, MouseButton,
     MouseDownEvent, ParentElement, StatefulInteractiveElement, Styled, Window,

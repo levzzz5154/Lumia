@@ -89,12 +89,12 @@ impl LumiaApp {
             .px_4()
             .border_t_1()
             .border_color(rgb(palette.border))
-            .bg(Rgba {
-                r: ((palette.toolbar_bg >> 16) & 0xff) as f32 / 255.0,
-                g: ((palette.toolbar_bg >> 8) & 0xff) as f32 / 255.0,
-                b: (palette.toolbar_bg & 0xff) as f32 / 255.0,
-                a: palette.toolbar_bg_alpha,
-            })
+            .bg(Rgba::new(
+                ((palette.toolbar_bg >> 16) & 0xff) as f32 / 255.0,
+                ((palette.toolbar_bg >> 8) & 0xff) as f32 / 255.0,
+                (palette.toolbar_bg & 0xff) as f32 / 255.0,
+                palette.toolbar_bg_alpha,
+            ))
             .child(
                 div()
                     .flex()

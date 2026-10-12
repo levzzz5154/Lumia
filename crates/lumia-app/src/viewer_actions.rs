@@ -152,7 +152,7 @@ impl LumiaApp {
                             return true;
                         }
                         let handle = self_handle.clone();
-                        let client = cx.http_client();
+                        let client = crate::bootstrap::http_client(cx);
                         cx.spawn(async move |cx| match download_image(&client, &url).await {
                             Ok(path) => {
                                 let _ = handle.update(cx, |this, cx| {

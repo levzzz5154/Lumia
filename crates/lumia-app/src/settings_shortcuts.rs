@@ -1,3 +1,4 @@
+use gpui_kit::ColorExt as _;
 use gpui_kit::{
     div, px, rgb, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,

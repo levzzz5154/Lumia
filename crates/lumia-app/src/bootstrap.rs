@@ -36,7 +36,7 @@ pub(crate) fn run_gui(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
         gpui_kit::init(cx);
         let http_client = ReqwestClient::user_agent(concat!("Lumia/", env!("CARGO_PKG_VERSION")))
             .expect("failed to initialize Lumia HTTP client");
-        cx.set_http_client(Arc::new(http_client));
+        cx.set_global(LumiaHttp(Arc::new(http_client)));
         #[cfg(target_os = "macos")]
         set_macos_dock_icon();
         cx.on_action(|_: &Quit, cx| cx.quit());
@@ -102,4 +102,14 @@ fn set_macos_dock_icon() {
             app.setApplicationIconImage(Some(&image));
         }
     }
+}
+
+// Spike: gpui-ce's built-in HttpClient trait is a different, smaller one, so
+// the reqwest client is kept in a global instead of `cx.set_http_client`.
+pub(crate) struct LumiaHttp(pub(crate) Arc<dyn http_client::HttpClient>);
+
+impl gpui_kit::Global for LumiaHttp {}
+
+pub(crate) fn http_client(cx: &gpui_kit::App) -> Arc<dyn http_client::HttpClient> {
+    cx.global::<LumiaHttp>().0.clone()
 }
