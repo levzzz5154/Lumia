@@ -286,6 +286,8 @@ impl LumiaApp {
                     filter: self.settings.resample_filter,
                     width: display_width.round().max(1.0) as u32,
                     height: display_height.round().max(1.0) as u32,
+                    region: None,
+                    source_dimensions: None,
                 };
                 if let Some(resampled) = self.display_resample.ready(&key) {
                     shown = Some(resampled);
@@ -294,7 +296,11 @@ impl LumiaApp {
                 }
             }
 
-            let image = if let Some(large_image) = self.render_large_image_content(window) {
+            let image = if let Some(magic) = self
+                .render_magic_content(crate::display_resample::ResampleSlot::MainDisplay, window)
+            {
+                magic
+            } else if let Some(large_image) = self.render_large_image_content(window) {
                 large_image
             } else if let Some(prepared) = shown {
                 let (image_width, image_height) = prepared.dimensions();

@@ -91,6 +91,7 @@ pub(super) fn lookup(key: TextKey) -> &'static str {
         TextKey::FilterNearestNeighbor => "最近邻",
         TextKey::FilterBilinear => "双线性",
         TextKey::FilterLanczos => "Lanczos",
+        TextKey::FilterMagicKernelSharp => "Magic Kernel Sharp",
         TextKey::ShortcutOpenFileLabel => "打开文件",
         TextKey::ShortcutZoomInLabel => "放大",
         TextKey::ShortcutZoomOutLabel => "缩小",

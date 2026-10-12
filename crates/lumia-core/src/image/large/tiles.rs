@@ -50,6 +50,19 @@ impl LargeImageRaster {
         )
     }
 
+    pub fn resize_magic_kernel_sharp_region(
+        &self,
+        target: (u32, u32),
+        region: crate::ImagePixelRect,
+    ) -> Result<DecodedImage, crate::ImageLoadError> {
+        crate::image::resize_magic_kernel_sharp_region(
+            self.reader.pixels(),
+            self.dimensions(),
+            target,
+            region,
+        )
+    }
+
     pub fn decode_tile(
         &self,
         coordinate: TileCoordinate,
@@ -329,6 +342,7 @@ mod tests {
             crate::ResampleFilter::NearestNeighbor,
             crate::ResampleFilter::Bilinear,
             crate::ResampleFilter::Lanczos,
+            crate::ResampleFilter::MagicKernelSharp,
         ] {
             for (width, height) in [(37, 29), (103, 79), (151, 113)] {
                 let mapped = raster.resize(filter, width, height).unwrap();

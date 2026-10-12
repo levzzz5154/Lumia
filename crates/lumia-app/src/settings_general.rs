@@ -117,6 +117,11 @@ impl LumiaApp {
                                 selected_filter == ResampleFilter::Lanczos,
                                 Box::new(SelectResampleFilter(ResampleFilter::Lanczos)),
                             )
+                            .menu_with_check(
+                                tr(language, TextKey::FilterMagicKernelSharp),
+                                selected_filter == ResampleFilter::MagicKernelSharp,
+                                Box::new(SelectResampleFilter(ResampleFilter::MagicKernelSharp)),
+                            )
                         },
                     )),
             )

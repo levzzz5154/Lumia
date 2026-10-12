@@ -169,10 +169,20 @@ pub(crate) fn resize_bgra8(
     if pixels.len() != source_len {
         return Err(invalid_buffer_length("BGRA"));
     }
+    if filter == ResampleFilter::MagicKernelSharp {
+        return super::magic_kernel_sharp::resize(
+            pixels,
+            width,
+            height,
+            target_width,
+            target_height,
+        );
+    }
     let filter_type = match filter {
         ResampleFilter::NearestNeighbor => image::imageops::FilterType::Nearest,
         ResampleFilter::Bilinear => image::imageops::FilterType::Triangle,
         ResampleFilter::Lanczos => image::imageops::FilterType::Lanczos3,
+        ResampleFilter::MagicKernelSharp => unreachable!(),
     };
     let source = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(width, height, pixels)
         .ok_or_else(invalid_buffer_length_bgra)?;

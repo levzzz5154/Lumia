@@ -83,6 +83,7 @@ pub(crate) enum TextKey {
     FilterNearestNeighbor,
     FilterBilinear,
     FilterLanczos,
+    FilterMagicKernelSharp,
     ShortcutOpenFileLabel,
     ShortcutZoomInLabel,
     ShortcutZoomOutLabel,

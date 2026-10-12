@@ -5,6 +5,7 @@ mod error;
 mod formats;
 mod heif;
 mod large;
+mod magic_kernel_sharp;
 mod metadata;
 mod raster;
 mod types;
@@ -26,6 +27,7 @@ pub use large::{
     build_large_image_raster, large_image_worker_count, LargeImageRaster, PixelBudget,
 };
 pub use large::{checked_bgra8_len, ImagePixelRect, LargeImagePolicy, TileCoordinate, TileLevel};
+pub use magic_kernel_sharp::resize_magic_kernel_sharp_region;
 pub use raster::{
     decoded_image_from_rgba, load_decoded_image_from_path,
     load_decoded_image_from_path_with_policy, resize_decoded_image, rotate_bgra8,

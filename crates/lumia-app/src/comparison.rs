@@ -188,6 +188,8 @@ fn pane_resample_key(
         filter,
         width: width.round().max(1.0) as u32,
         height: height.round().max(1.0) as u32,
+        region: None,
+        source_dimensions: None,
     })
 }
 
@@ -384,7 +386,12 @@ impl LumiaApp {
             self.image_path()
                 .and_then(|path| state.left_resample.latest_for(path))
         });
-        let left_tiled = if left_override.is_some() {
+        let left_tiled = if let Some(magic) = self.render_magic_content(
+            crate::display_resample::ResampleSlot::ComparisonLeft,
+            window,
+        ) {
+            Some(magic)
+        } else if left_override.is_some() {
             None
         } else {
             self.render_large_image_content(window)
@@ -411,7 +418,10 @@ impl LumiaApp {
             state.individual_target == Some(true),
             Some((self.self_handle.clone(), true)),
             state.error.as_deref(),
-            None,
+            self.render_magic_content(
+                crate::display_resample::ResampleSlot::ComparisonRight,
+                window,
+            ),
         );
 
         let capture = self.self_handle.clone();

@@ -129,11 +129,12 @@ pub enum ResampleFilter {
     NearestNeighbor,
     Bilinear,
     Lanczos,
+    MagicKernelSharp,
 }
 
 impl Default for ResampleFilter {
     fn default() -> Self {
-        Self::Lanczos
+        Self::MagicKernelSharp
     }
 }
 
@@ -156,7 +157,7 @@ mod tests {
 
         assert_eq!(settings.language, Language::English);
         assert_eq!(settings.theme_accent, ThemeAccent::Blue);
-        assert_eq!(settings.resample_filter, ResampleFilter::Lanczos);
+        assert_eq!(settings.resample_filter, ResampleFilter::MagicKernelSharp);
         assert!(!settings.shortcuts.is_empty());
         assert!(settings.check_updates_on_startup);
     }
@@ -179,11 +180,11 @@ mod tests {
     }
 
     #[test]
-    fn missing_resample_filter_in_json_defaults_to_lanczos() {
+    fn missing_resample_filter_in_json_defaults_to_magic_kernel_sharp() {
         let json = r#"{"language":"English","theme":"Light"}"#;
         let parsed: AppSettings =
             serde_json::from_str(json).expect("deserialize without resample filter");
-        assert_eq!(parsed.resample_filter, ResampleFilter::Lanczos);
+        assert_eq!(parsed.resample_filter, ResampleFilter::MagicKernelSharp);
     }
 
     #[test]

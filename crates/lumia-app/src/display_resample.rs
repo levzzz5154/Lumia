@@ -4,12 +4,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui_kit::{Context, RenderImage, WeakEntity, Window};
-use lumia_core::{
-    resize_decoded_image, DecodedImage, ImageLoadError, ResampleFilter, ViewportState,
-};
+use lumia_core::{ImageLoadError, ResampleFilter, ViewportState};
 
 use crate::app::LumiaApp;
 use crate::load_state::PreparedImage;
+use crate::resample_job::run_resample_job;
 
 /// Quiet period after the last zoom change before a resample job runs, so
 /// continuous scroll gestures do not queue repeated full-image resizes.
@@ -25,6 +24,8 @@ pub(crate) struct ResampleKey {
     pub(crate) filter: ResampleFilter,
     pub(crate) width: u32,
     pub(crate) height: u32,
+    pub(crate) region: Option<lumia_core::ImagePixelRect>,
+    pub(crate) source_dimensions: Option<(u32, u32)>,
 }
 
 /// Which cached preview a background job writes back into.
@@ -36,11 +37,11 @@ pub(crate) enum ResampleSlot {
 }
 
 pub(crate) struct ResampleRequest {
-    key: ResampleKey,
-    source: ResampleSource,
+    pub(crate) key: ResampleKey,
+    pub(crate) source: ResampleSource,
 }
 
-enum ResampleSource {
+pub(crate) enum ResampleSource {
     Bitmap(Arc<RenderImage>),
     Raster(lumia_core::LargeImageRaster),
 }
@@ -59,15 +60,42 @@ pub(crate) struct ResamplePreview {
     generation: u64,
     image: Option<PreparedImage>,
     cancel: Option<Arc<AtomicBool>>,
+    pub(crate) error: Option<String>,
 }
 
 impl ResamplePreview {
     /// The bitmap for exactly `key`, if one has finished processing.
     pub(crate) fn ready(&self, key: &ResampleKey) -> Option<PreparedImage> {
-        match &self.key {
+        match &self.ready_key {
             Some(current) if *current == *key && !self.pending => self.image.clone(),
             _ => None,
         }
+    }
+
+    /// The most recent finished region bitmap for `key`'s document, with the
+    /// region it covers and the full destination grid that region belongs to.
+    ///
+    /// Used so the view never blanks between jobs. After a pan the grid is
+    /// unchanged and the old output is still pixel-exact where it overlaps the
+    /// new view; after a zoom the caller stretches it onto the new grid until
+    /// the replacement finishes.
+    pub(crate) fn latest_region(
+        &self,
+        key: &ResampleKey,
+    ) -> Option<(PreparedImage, lumia_core::ImagePixelRect, (u32, u32))> {
+        let ready = self.ready_key.as_ref()?;
+        let same_source = ready.path == key.path
+            && ready.filter == key.filter
+            && ready.source_dimensions == key.source_dimensions;
+        same_source
+            .then(|| {
+                Some((
+                    self.image.clone()?,
+                    ready.region?,
+                    (ready.width, ready.height),
+                ))
+            })
+            .flatten()
     }
 
     /// The most recent finished bitmap, but only while it was resampled from
@@ -102,6 +130,7 @@ impl ResamplePreview {
         self.ready_key = None;
         self.pending = false;
         self.image = None;
+        self.error = None;
     }
 
     /// Schedule (or drop) the pending request for this preview. Passing
@@ -115,18 +144,35 @@ impl ResamplePreview {
     ) {
         let Some(request) = request else {
             if self.key.is_some() {
-                self.cancel_job();
-                *self = Self::default();
+                self.invalidate();
             }
             return;
         };
         let already_handled = match &self.key {
-            Some(key) => *key == request.key && (self.pending || self.image.is_some()),
+            Some(key) => {
+                *key == request.key
+                    && (self.pending
+                        || self.ready_key.as_ref() == Some(&request.key)
+                        || self.error.is_some())
+            }
             None => false,
         };
         if already_handled {
             return;
         }
+        // A pan keeps the destination grid and needs no settling time; only a
+        // scale change waits for the gesture to pause.
+        let same_grid = self.ready_key.as_ref().is_some_and(|ready| {
+            request.key.region.is_some()
+                && ready.region.is_some()
+                && ready.path == request.key.path
+                && (ready.width, ready.height) == (request.key.width, request.key.height)
+        });
+        let debounce = if same_grid {
+            Duration::ZERO
+        } else {
+            RESAMPLE_DEBOUNCE
+        };
         // Supersede any running job and keep the old bitmap on screen until
         // the replacement finishes.
         self.cancel_job();
@@ -134,12 +180,13 @@ impl ResamplePreview {
         let generation = self.generation;
         self.key = Some(request.key.clone());
         self.pending = true;
+        self.error = None;
 
         let cancel = Arc::new(AtomicBool::new(false));
         self.cancel = Some(cancel.clone());
 
         cx.spawn(async move |_, cx| {
-            cx.background_executor().timer(RESAMPLE_DEBOUNCE).await;
+            cx.background_executor().timer(debounce).await;
             if cancel.load(Ordering::Relaxed) {
                 return;
             }
@@ -153,7 +200,7 @@ impl ResamplePreview {
                 return;
             }
             let _ = handle.update(cx, |this, cx| {
-                if this.complete_resample(slot, generation, key, result) {
+                if this.complete_resample(slot, generation, key, result, cx) {
                     cx.notify();
                 }
             });
@@ -188,10 +235,15 @@ impl ResamplePreview {
                 if prepared.is_some() {
                     self.image = prepared;
                     self.ready_key = Some(key);
+                } else {
+                    self.error = Some("Image pixels are unavailable for resampling".into());
                 }
                 true
             }
-            Err(_) => false,
+            Err(error) => {
+                self.error = Some(error.to_string());
+                true
+            }
         }
     }
 }
@@ -211,15 +263,34 @@ impl LumiaApp {
         generation: u64,
         key: ResampleKey,
         result: Result<Option<PreparedImage>, ImageLoadError>,
+        cx: &mut Context<Self>,
     ) -> bool {
-        resolve_slot(self, slot)
-            .map(|preview| preview.complete(generation, key, result))
-            .unwrap_or(false)
+        let Some(preview) = resolve_slot(self, slot) else {
+            return false;
+        };
+        let previous = preview.image.clone();
+        let changed = preview.complete(generation, key, result);
+        // Release the superseded bitmap's GPU texture; region outputs are
+        // replaced often and would otherwise accumulate in the atlas.
+        if let Some(previous) = previous.map(|image| image.render_image()) {
+            let replaced = preview
+                .image
+                .as_ref()
+                .is_none_or(|image| !Arc::ptr_eq(&image.render_image(), &previous));
+            if replaced {
+                cx.drop_image(previous, None);
+            }
+        }
+        changed
     }
 
     /// Refresh the pending resample requests for the main viewer and, when
     /// comparison mode is active, both comparison panes.
     pub(crate) fn schedule_viewer_resamples(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.settings.resample_filter == ResampleFilter::MagicKernelSharp {
+            self.schedule_magic_resamples(window, cx);
+            return;
+        }
         if self.comparison.is_some()
             && self.viewer.rotation_quarter_turns() == 0
             && self.large_image.begin_raster_build()
@@ -301,6 +372,8 @@ impl LumiaApp {
                                 filter,
                                 width,
                                 height,
+                                region: None,
+                                source_dimensions: None,
                             },
                             source: ResampleSource::Raster(raster),
                         }
@@ -372,6 +445,8 @@ fn build_request(
             filter,
             width: target_width,
             height: target_height,
+            region: None,
+            source_dimensions: None,
         },
         source: ResampleSource::Bitmap(source.render_image()),
     })
@@ -386,41 +461,6 @@ pub(crate) fn pane_fit_scale(
     let width = f32::from(pane_size.width).max(1.0);
     let height = f32::from(pane_size.height).max(1.0);
     (width / dimensions.0 as f32).min(height / dimensions.1 as f32)
-}
-
-fn run_resample_job(
-    source: ResampleSource,
-    key: &ResampleKey,
-) -> Result<Option<PreparedImage>, ImageLoadError> {
-    let source = match source {
-        ResampleSource::Raster(raster) => {
-            return raster
-                .resize(key.filter, key.width, key.height)
-                .map(PreparedImage::from_decoded)
-                .map(Some)
-        }
-        ResampleSource::Bitmap(source) => source,
-    };
-    let Some(pixels) = source.as_bytes(0) else {
-        return Ok(None);
-    };
-    let size = source.size(0);
-    let Ok(source_width) = u32::try_from(size.width.0) else {
-        return Ok(None);
-    };
-    let Ok(source_height) = u32::try_from(size.height.0) else {
-        return Ok(None);
-    };
-    if source_width == 0 || source_height == 0 {
-        return Ok(None);
-    }
-    let input = DecodedImage {
-        pixels_bgra8: pixels.to_vec(),
-        width: source_width,
-        height: source_height,
-    };
-    resize_decoded_image(&input, key.filter, key.width, key.height)
-        .map(|resized| Some(PreparedImage::from_decoded(resized)))
 }
 
 #[cfg(test)]

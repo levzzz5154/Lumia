@@ -21,6 +21,7 @@ pub(crate) fn resample_filter_text_key(filter: ResampleFilter) -> TextKey {
         ResampleFilter::NearestNeighbor => TextKey::FilterNearestNeighbor,
         ResampleFilter::Bilinear => TextKey::FilterBilinear,
         ResampleFilter::Lanczos => TextKey::FilterLanczos,
+        ResampleFilter::MagicKernelSharp => TextKey::FilterMagicKernelSharp,
     }
 }
 

@@ -93,6 +93,7 @@ pub(super) fn lookup(key: TextKey) -> &'static str {
         TextKey::FilterNearestNeighbor => "Nearest Neighbor",
         TextKey::FilterBilinear => "Bilinear",
         TextKey::FilterLanczos => "Lanczos",
+        TextKey::FilterMagicKernelSharp => "Magic Kernel Sharp",
         TextKey::ShortcutOpenFileLabel => "Open file",
         TextKey::ShortcutZoomInLabel => "Zoom in",
         TextKey::ShortcutZoomOutLabel => "Zoom out",
